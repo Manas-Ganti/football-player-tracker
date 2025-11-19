@@ -61,125 +61,134 @@ PIXELS_PER_METER = 10.0  # Approximate - adjust based on known field dimensions
 # Annotators
 box_annotator = sv.BoxAnnotator(thickness=2)
 label_annotator = sv.LabelAnnotator(text_thickness=2, text_scale=0.5)
-trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=50)
+# trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=50)
 
 frame_count = 0
 
 
-while True:
-    ret,frame = vid.read()
-    if not ret:
-        break
+total_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    tracker = sv.ByteTrack()
-    tracker.reset()
-    
-    result = model.predict(frame, conf=0.3)[0]
-    detections = sv.Detections.from_ultralytics(result)
-    
-    all_detections = detections[detections.class_id != 0]
-    all_detections = all_detections.with_nms(threshold=0.5, class_agnostic=True)
-    all_detections = tracker.update_with_detections(detections=all_detections)
-    
-    players_detections = all_detections[all_detections.class_id == 2]
-     #Classify teams for players
-    if len(players_detections) > 0:
-        player_crops = [sv.crop_image(frame, xyxy) for xyxy in players_detections.xyxy]
-        team_ids = team_classifier.predict(player_crops)
+with tqdm(total=total_frames, desc="Processing") as pbar:
+    while True:
+        ret, frame = vid.read()
+        if not ret:
+            break
         
-        # Process each player
-        for i, (xyxy, tracker_id, team_id) in enumerate(zip(
-            players_detections.xyxy, 
-            players_detections.tracker_id, 
-            team_ids
-        )):
-            # Calculate center position
-            x_center = (xyxy[0] + xyxy[2]) / 2
-            y_center = (xyxy[1] + xyxy[3]) / 2
-            
-            # Initialize player data if new
-            if tracker_id not in player_data:
-                player_data[tracker_id] = {
-                    'positions': [],
-                    'team': team_id,
-                    'speeds': []
-                }
-            
-            # Store position and frame
-            player_data[tracker_id]['positions'].append((x_center, y_center, frame_count))
-            player_data[tracker_id]['team'] = team_id
-            
-            # Calculate speed if we have previous position
-            if len(player_data[tracker_id]['positions']) > 1:
-                prev_pos = player_data[tracker_id]['positions'][-2]
-                curr_pos = player_data[tracker_id]['positions'][-1]
-                
-                # Calculate distance in pixels
-                dx = curr_pos[0] - prev_pos[0]
-                dy = curr_pos[1] - prev_pos[1]
-                distance_pixels = np.sqrt(dx**2 + dy**2)
-                
-                # Convert to meters
-                distance_meters = distance_pixels / PIXELS_PER_METER
-                
-                # Calculate time difference
-                frame_diff = curr_pos[2] - prev_pos[2]
-                time_diff = frame_diff / fps
-                
-                # Calculate speed in m/s and convert to km/h
-                if time_diff > 0:
-                    speed_ms = distance_meters / time_diff
-                    speed_kmh = speed_ms * 3.6
-                    player_data[tracker_id]['speeds'].append(speed_kmh)
-            logger.info(f'Frame {frame_count} processed')
-        # Create labels with team and speed info
-        labels = []
-        for tracker_id, team_id in zip(players_detections.tracker_id, team_ids):
-            team_name = f"Team {team_id}"
-            
-            # Get current speed
-            if tracker_id in player_data and len(player_data[tracker_id]['speeds']) > 0:
-                current_speed = player_data[tracker_id]['speeds'][-1]
-                avg_speed = np.mean(player_data[tracker_id]['speeds'])
-                label = f"ID:{tracker_id} {team_name}\nSpeed:{current_speed:.1f}km/h\nAvg:{avg_speed:.1f}km/h"
-            else:
-                label = f"ID:{tracker_id} {team_name}"
-            
-            labels.append(label)
+        frame_count += 1
         
-        # Set colors based on team
-        colors = []
-        for team_id in team_ids:
-            if team_id == 0:
-                colors.append(sv.Color.RED)
-            elif team_id == 1:
-                colors.append(sv.Color.BLUE)
-            else:
-                colors.append(sv.Color.GREEN)
+        # Run detection
+        result = model.predict(frame, conf=0.3, device='mps')[0]
+        detections = sv.Detections.from_ultralytics(result)
         
-        # Annotate frame
-        annotated_frame = box_annotator.annotate(
-            scene=frame.copy(), 
-            detections=players_detections
-        )
-        annotated_frame = label_annotator.annotate(
-            scene=annotated_frame, 
-            detections=players_detections, 
-            labels=labels
-        )
-        annotated_frame = trace_annotator.annotate(
-            scene=annotated_frame,
-            detections=players_detections
-        )
-    else:
-        annotated_frame = frame.copy()
-    
-    # Write frame
-    out.write(annotated_frame)
-    
-    # Display frame (optional - comment out for faster processing)
-    cv2.imshow('Soccer Tracking', annotated_frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-    
-    # pbar.update(1)
+        # Filter out ball detections and apply NMS
+        all_detections = detections[detections.class_id != 0]
+        all_detections = all_detections.with_nms(threshold=0.5, class_agnostic=True)
+        
+        # Update tracker (DON'T reset or recreate)
+        all_detections = tracker.update_with_detections(detections=all_detections)
+        
+        # Get player detections
+        players_detections = all_detections[all_detections.class_id == 2]
+        
+        # Classify teams for players
+        if len(players_detections) > 0:
+            player_crops = [sv.crop_image(frame, xyxy) for xyxy in players_detections.xyxy]
+            team_ids = team_classifier.predict(player_crops)
+            
+            # Process each player
+            for i, (xyxy, tracker_id, team_id) in enumerate(zip(
+                players_detections.xyxy, 
+                players_detections.tracker_id, 
+                team_ids
+            )):
+                # Calculate center position
+                x_center = (xyxy[0] + xyxy[2]) / 2
+                y_center = (xyxy[1] + xyxy[3]) / 2
+                
+                # Initialize player data if new
+                if tracker_id not in player_data:
+                    player_data[tracker_id] = {
+                        'positions': [],
+                        'team': team_id,
+                        'speeds': []
+                    }
+                
+                # Store position and frame
+                player_data[tracker_id]['positions'].append((x_center, y_center, frame_count))
+                player_data[tracker_id]['team'] = team_id
+                
+                # Calculate speed if we have previous position
+                if len(player_data[tracker_id]['positions']) > 1:
+                    prev_pos = player_data[tracker_id]['positions'][-2]
+                    curr_pos = player_data[tracker_id]['positions'][-1]
+                    
+                    # Calculate distance in pixels
+                    dx = curr_pos[0] - prev_pos[0]
+                    dy = curr_pos[1] - prev_pos[1]
+                    distance_pixels = np.sqrt(dx**2 + dy**2)
+                    
+                    # Convert to meters
+                    distance_meters = distance_pixels / PIXELS_PER_METER
+                    
+                    # Calculate time difference
+                    frame_diff = curr_pos[2] - prev_pos[2]
+                    time_diff = frame_diff / fps
+                    
+                    # Calculate speed in m/s and convert to km/h
+                    if time_diff > 0:
+                        speed_ms = distance_meters / time_diff
+                        speed_kmh = speed_ms * 3.6
+                        player_data[tracker_id]['speeds'].append(speed_kmh)
+            
+            # Create simple labels with only team and current speed
+            labels = []
+            for tracker_id, team_id in zip(players_detections.tracker_id, team_ids):
+                # Get current speed
+                if tracker_id in player_data and len(player_data[tracker_id]['speeds']) > 0:
+                    current_speed = player_data[tracker_id]['speeds'][-1]
+                    label = f"Team {team_id} | {current_speed:.1f} km/h"
+                else:
+                    label = f"Team {team_id}"
+                
+                labels.append(label)
+            
+            # Annotate frame (removed trace_annotator)
+            annotated_frame = box_annotator.annotate(
+                scene=frame.copy(), 
+                detections=players_detections
+            )
+            annotated_frame = label_annotator.annotate(
+                scene=annotated_frame, 
+                detections=players_detections, 
+                labels=labels
+            )
+        else:
+            annotated_frame = frame.copy()
+        
+        # Write frame
+        out.write(annotated_frame)
+        
+        # Display frame (optional)
+        cv2.imshow('Soccer Tracking', annotated_frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        
+        pbar.update(1)
+vid.release()
+out.release()
+cv2.destroyAllWindows()
+
+# Calculate and display statistics
+logger.info("\n" + "="*60)
+logger.info("PLAYER STATISTICS")
+logger.info("="*60)
+
+for tracker_id, data in player_data.items():
+    if len(data['speeds']) > 0:
+        avg_speed = np.mean(data['speeds'])
+        max_speed = np.max(data['speeds'])
+        team = data['team']
+        
+        logger.info(f"\nPlayer ID: {tracker_id} (Team {team})")
+        logger.info(f"  Average Speed: {avg_speed:.2f} km/h")
+        logger.info(f"  Max Speed: {max_speed:.2f} km/h")
