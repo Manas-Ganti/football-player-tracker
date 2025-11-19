@@ -150,4 +150,3 @@ class LiveStatsDisplay:
             y_offset += 25
         
         return panel
-

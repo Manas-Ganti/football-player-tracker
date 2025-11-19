@@ -72,7 +72,11 @@ class TeamClassifier:
         Returns:
             np.ndarray: Extracted features as a numpy array.
         """
-        crops = [sv.cv2_to_pillow(crop) for crop in crops]
+        # for crop in crops:
+        #     print(len(crop))
+        #     if crop.size == 0:
+        #         continue
+        crops = [sv.cv2_to_pillow(crop) for crop in crops if crop.size != 0]
         batches = create_batches(crops, self.batch_size)
         data = []
         
@@ -110,7 +114,6 @@ class TeamClassifier:
         """
         if len(crops) == 0:
             return np.array([])
-            
         data = self.extract_features(crops)
         projections = self.reducer.transform(data)
         return self.cluster_model.predict(projections)
