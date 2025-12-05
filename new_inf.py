@@ -7,6 +7,7 @@ import supervision as sv
 import tqdm 
 from team_classify import *
 from sklearn.cluster import KMeans
+from homography import *
 # from live_stats import *
 # from deep_sort_realtime.deepsort_tracker import DeepSort
 
@@ -89,6 +90,11 @@ def stats(frame, player_data, h, panel_width):
     combined = np.hstack((frame, panel))
     return combined
 
+# get model from robo flow for getting key points from pitch
+ROBOFLOW_API_KEY = "GU1FNPGRswx8gDRZNXII"
+PITCH_MODEL_ID = "football-field-detection-f07vi/15"
+PITCH_MODEL = get_model(PITCH_MODEL_ID, ROBOFLOW_API_KEY)
+
 # get the video and model
 video_path = 'videos/121364_0.mp4' 
 model_path = 'models/cv.pt'
@@ -160,10 +166,14 @@ PIXELS_PER_METER = 50.0
 # Annotators to draw bounding boxes and data
 box_annotator = sv.BoxAnnotator(thickness=2)
 label_annotator = sv.LabelAnnotator(text_thickness=2, text_scale=0.5)
-# trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=50)
 
+# trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=50)
 frame_count = 0
 total_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
+
+# create virtual pitch to translate points onto
+CONFIG = SoccerPitchConfiguration()
+
 
 # create a progress bar
 with tqdm(total=total_frames, desc="Processing") as pbar:
@@ -187,7 +197,21 @@ with tqdm(total=total_frames, desc="Processing") as pbar:
         # Update tracker (DON'T reset or recreate)
         players_detections = tracker.update_with_detections(detections=players_detections)
         
-        
+        # run pitch key points detection and get homograpgy matrix
+        result_h = PITCH_MODEL.infer(frame, confidence=0.3)[0]
+        key_points = sv.KeyPoints.from_inference(result_h)
+
+        # filter out unwanted points
+        filter = key_points.confidence[0] > 0.5
+        frame_reference_points = key_points.xy[0][filter]
+        pitch_reference_points = np.array(CONFIG.vertices)[filter] # pitch reference
+
+        # points transformer object to build homography matrix
+        view_transformer = transformPoints(
+            source = frame_reference_points,
+            target = pitch_reference_points
+        )
+
         # Classify teams for players
         if len(players_detections) > 0:
             # get cropped detections
@@ -207,6 +231,13 @@ with tqdm(total=total_frames, desc="Processing") as pbar:
                 x_center = (xyxy[0] + xyxy[2]) / 2
                 y_center = (xyxy[1] + xyxy[3]) / 2
                 
+                points = np.array([[x_center, y_center]])
+
+                pitch_xy = view_transformer.transform(points)
+
+                x_center = pitch_xy[0][0]
+                y_center = pitch_xy[0][1]
+
                 # Initialize player data if new
                 if tracker_id not in player_data:
                     player_data[tracker_id] = {
@@ -228,10 +259,10 @@ with tqdm(total=total_frames, desc="Processing") as pbar:
                     # Calculate distance in pixels
                     dx = curr_pos[0] - prev_pos[0]
                     dy = curr_pos[1] - prev_pos[1]
-                    distance_pixels = np.sqrt(dx**2 + dy**2)
+                    distance_centimeters = np.sqrt(dx**2 + dy**2)
                     
                     # Convert to meters
-                    distance_meters = distance_pixels / PIXELS_PER_METER
+                    distance_meters = distance_centimeters / 100
                     
                     # Calculate time difference
                     frame_diff = curr_pos[2] - prev_pos[2]

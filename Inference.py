@@ -441,10 +441,10 @@ if __name__ == "__main__":
     # Example usage
     
     # Configuration
-    MODEL_PATH = "models/best-3.pt"  # Path to your trained model
+    MODEL_PATH = "models/cv.pt"  # Path to your trained model
     VIDEO_PATH = "videos/0bfacc_0.mp4"  # Input video
     OUTPUT_PATH = "videos/output_annotated.mp4"  # Output video
-    
+    print("HERE")
     # Initialize inference pipeline
     inference = SoccerInference(
         model_path=MODEL_PATH,

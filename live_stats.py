@@ -1,3 +1,18 @@
+import cv2
+import numpy as np
+import torch
+import supervision as sv
+from typing import List, Dict, Generator, Iterable, TypeVar
+from collections import defaultdict, deque
+from ultralytics import YOLO
+from deep_sort_realtime.deepsort_tracker import DeepSort
+from tqdm import tqdm
+import umap
+from sklearn.cluster import KMeans
+from transformers import AutoProcessor, SiglipVisionModel
+import time
+from speed_track import *
+
 
 class LiveStatsDisplay:
     """Creates a live stats panel for display"""
@@ -23,7 +38,7 @@ class LiveStatsDisplay:
         
         # Title
         cv2.putText(panel, "LIVE STATS", (20, y_offset), 
-                   cv2.FONT_HERSHEY_BOLD, 1.0, (255, 255, 255), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         y_offset += 40
         
         # Performance metrics
@@ -44,7 +59,7 @@ class LiveStatsDisplay:
         team_1_count = sum(1 for t in team_assignments.values() if t == 1)
         
         cv2.putText(panel, "TEAMS", (20, y_offset),
-                   cv2.FONT_HERSHEY_BOLD, 0.8, (255, 255, 255), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         y_offset += 30
         
         # Team 0
@@ -67,7 +82,7 @@ class LiveStatsDisplay:
         
         # Top speeds
         cv2.putText(panel, "TOP SPEEDS", (20, y_offset),
-                   cv2.FONT_HERSHEY_BOLD, 0.8, (255, 255, 255), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         y_offset += 30
         
         # Sort players by current speed
@@ -101,7 +116,7 @@ class LiveStatsDisplay:
         
         # Maximum speeds achieved
         cv2.putText(panel, "MAX SPEEDS", (20, y_offset),
-                   cv2.FONT_HERSHEY_BOLD, 0.8, (255, 255, 255), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         y_offset += 30
         
         max_speed_items = [(tid, spd) for tid, spd in speed_tracker.max_speeds.items()]
@@ -129,7 +144,7 @@ class LiveStatsDisplay:
         
         # Distance covered
         cv2.putText(panel, "DISTANCE COVERED", (20, y_offset),
-                   cv2.FONT_HERSHEY_BOLD, 0.8, (255, 255, 255), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         y_offset += 30
         
         distance_items = [(tid, dist) for tid, dist in speed_tracker.total_distance.items()]
