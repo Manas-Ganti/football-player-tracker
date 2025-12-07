@@ -7,6 +7,7 @@ from ultralytics import YOLO
 from typing import Optional, List
 import supervision as sv
 
+# function from roboflow sports repository to draw a virtual pitch
 def draw_pitch(
     config: SoccerPitchConfiguration,
     background_color: sv.Color = sv.Color(34, 139, 34),
@@ -95,6 +96,7 @@ def draw_pitch(
 
     return pitch_image
 
+# function from roboflow sports repository to draw points onto a virtual pitch
 def draw_points_on_pitch(
     config: SoccerPitchConfiguration,
     xy: np.ndarray,
@@ -161,6 +163,7 @@ def draw_points_on_pitch(
 
     return pitch
 
+# class to transform points
 class transformPoints:
     def __init__(self, source: np.ndarray, target: np.ndarray):
         source = source.astype(np.float32)

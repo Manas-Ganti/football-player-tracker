@@ -8,10 +8,9 @@ import tqdm
 from team_classify import *
 from sklearn.cluster import KMeans
 from homography import *
-# from live_stats import *
-# from deep_sort_realtime.deepsort_tracker import DeepSort
 
 
+# function to draw circles under players and the player current speed
 def draw(frame, detections, labels):
     for (xyxy, label) in zip(detections.xyxy, labels):
 
@@ -45,6 +44,7 @@ def draw(frame, detections, labels):
 
     return frame
 
+# function to draw stats panel
 def stats(frame, player_data, h, panel_width):
 
     # Create a solid background panel (dark gray)
@@ -63,7 +63,7 @@ def stats(frame, player_data, h, panel_width):
             
             # Latest speed (if available)
             if len(pdata['speeds']) > 0:
-                speed = np.max(pdata['speeds'][-1])
+                speed = np.max(pdata['speeds'])
                 speed_text = f"{speed:.1f} km/h"
                 mspeed = np.mean(pdata['speeds'])
                 mspeed_text = f"{mspeed:.1f} km/h"
@@ -96,7 +96,7 @@ PITCH_MODEL_ID = "football-field-detection-f07vi/15"
 PITCH_MODEL = get_model(PITCH_MODEL_ID, ROBOFLOW_API_KEY)
 
 # get the video and model
-video_path = 'videos/121364_0.mp4' 
+video_path = 'videos/0bfacc_0.mp4' 
 model_path = 'models/cv.pt'
 
 
